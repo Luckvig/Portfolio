@@ -1,0 +1,229 @@
+################################################################################################
+##############################LUDVIG GM PORTFOLIO: CHESS ANALYTICS#############################################
+################################################################################################
+# use ctrl + F for "#English:" to find all important comments written in english
+
+# använd ctrl + F för "#Svenska:" för att hoppa mellan alla viktiga kommentarer skrivna på svenska.
+
+#P.S when doing collaborative coding I always use unique prefixes like this to make my comments easier to find.
+#P.S I gruppkodning så ger jag alltid mina kommentarer unika prefixes för att göra dem lättare att hitta.
+
+######English: ############
+#I have dataset downloaded from kaggle that I will do this part of the portfolio in.
+#datasource: https://www.kaggle.com/datasnaek/chess
+#It is a collection of stats in information from 20000 games of chess played in the online client Lichess.org
+#I choose this dataset because, having played at a competitive level as a kid, I have a bit of domain knowledge in the area.
+#And just looking at the variables, I can think of interesting and insightful subtables that I can create from it.
+#Note: the first thing I did after downloading the dataset was reviewing it and planning the schema (done in excel of all software).
+##############################
+######Svenska: ###############
+#Jag har laddat ner ett dataset från kaggle, https://www.kaggle.com/datasnaek/chess, som jag kommer använda för denna del av portfolion.
+#Det är en samling av statistik och information om 20000 schack matcher spelade över online klienten Lichess.org.
+#Jag valde detta dataset för att jag är insatt i Schack, körde på tuneringsnivå som barn, och bara av titta på det så ser jag intressanta och insiktsfulla analyser jag kan skapa från variablerna.
+#Notera: Det första jag gjorde efter att ha laddat ner det var att analysera datan och planera detta kommande databas schema, i excel av alla program.
+##############################
+
+##dataset link: https://www.kaggle.com/datasnaek/chess
+
+#MAIN TABLE CREATION
+CREATE TABLE partier ( #Note to English speaking viewers: partier means "chess games"
+  id VARCHAR(20) PRIMARY key,
+  rated VARCHAR(20),
+  created_at VARCHAR(20),
+  last_move_at VARCHAR(20),
+  turns INT,
+  victory_status VARCHAR(20),
+  winner VARCHAR(20),
+  increment_code VARCHAR(20),
+  white_id VARCHAR(20),
+  white_rating INT,
+  black_id VARCHAR(20),
+  black_rating INT,
+  moves VARCHAR(1413), #this variable is the chesslog of every single move in the game, by both players. Hence the big VARCHAR value. #I found this value by using the LEN() command in excel
+  opening_eco VARCHAR(20),
+  opening_name VARCHAR(91),#91 character is the length of the longest opening name in the dataset, the "Nimzowitsch Defense: Scandinavian Variation |  Bogoljubov Variation |  Heinola-Deppe Gambit"
+  opening_ply INT  
+);
+
+###English: this is where I insert the dataset into SQL, imported as a csv file from drive. If you want this code to run in your system you're going to need to change filepaths and database names.
+
+###Svenska: Här importerar jag datasettet in i SQL. Från en csv fil sparad på datorn. Ifall du vill att koden ska funka på din maskin så behöver du ändra filsökvägar och databasnamn.
+
+
+LOAD DATA INFILE "E:/Users/Ludvig/Skrivbord pls work/JOBBAS/SQL/portfolio work/datan/games.csv" # partier means "chess games"
+ignore INTO TABLE portfolio_db.partier  #Here I am using the ignore command due to the dataset having 946 duplicate entries of double logged games.
+FIELDS TERMINATED BY ',' 
+ENCLOSED BY ''
+LINES TERMINATED BY '\n'
+IGNORE 1 rows;
+
+
+#Now I'll obser the data to ensure that the insertion went correctly
+select * from partier;
+
+#everything works and is inserted. This is great. This table will be my the "super table" that all other tables will derive their primary keys from, in the form of foreign keys.
+#It will henceforth be reffered to as "ST", (supertable)
+#The planned sub tables are:
+
+### Players /spelare
+
+#English: The orignal plan for this portfolio work was to do player analysis. However there is one problem I'm about to show you.
+#Svenska: Orginalplan med detta portfolio script var att göra spelaranalys. Men det finns problem med det som jag kommer visa er.
+create table spelare ( #spelare means players
+player_id VARCHAR(20) primary key)
+;
+
+insert ignore into portfolio_db.spelare (player_id)
+select white_id from partier;
+
+insert ignore into portfolio_db.spelare (player_id)
+select black_id from partier;
+
+select count(player_id) as Antal_spelare from spelare;
+select count(id) as Antal_partier from partier;
+
+
+
+################################################THE PROBLEM WITH PLAYER ANALYSIS / PROBLEMET MED SPELAR ANALYS###################################################
+#English: As you can see here, there are ~15000 unique players for ~20k games. With 2 players per game that leaves 2.5 games per players.
+#speaking as someone that used to play chess at a tournament level as a kid, 2.5 games is not enough to analyze a player.
+#Ergo I will analyse other things.
+
+#Svenska: Som ni kan se här så är det ~15 tusen unika spelare i ~20k partier. Med två spelare per partie så är det 2.5 partier per spelare.
+#Talandes som en som körde schack på tuneringsnivå som liten. Du behöver lite mer än 2.5 partier för att analysera en spelare.
+#Därav kommer jag istället analysera andra saker.
+################################################################################################################################################
+##############################Part 2: Finding David's opening. / Del 2: att hitta davids öppning. ##############################################
+################################################################################################################################################
+
+##English: Instead of doing player analysis, I will look at different chess openings to find the answer to this question "What is the best opening to use as david when facing goliath?""
+# David and Goliath here reffering to respective chess rating. A measure derived from tournament perforamnce giving a rough overview of how good you are.
+#for reference the current world champion Carlsen has a rating of 2855.
+
+##Svenska: Istället för spelar analys så kommer jag istället titta på olika öppningar för att finna svaret på frågan "Vilken öppning är bäst att använda för David när han möter Goljat?"
+#David och Goljat här referear till spelarnas schack rating, ett mått på hur bra man är baserat på tuneringsprestationer.
+#för referns så är nuvarande världsmästarens, Carlsen, 2855. 
+
+
+
+### Först så skapar skapar jag en tabell som kommer innehålla alla variabler jag behöver för att räkna ut vad jag vill. En "verktygslåda"
+
+#First I make a "toolbox"
+create table OpeningsTOOLBOX ( #this table has an english name because I know from experience not to trust sql with anything that requires utf-8 encoding.
+  id VARCHAR(20) PRIMARY key,
+  increment_code VARCHAR(20),
+  black_rating INT,
+  white_rating INT,
+  total_rating INT,
+  winner_rating INT,
+  loser_rating INT,
+  victory_delta INT,
+  winner VARCHAR(20),
+  turns INT,
+  victory_status VARCHAR(20),
+  opening_name VARCHAR(91) ,#91 character is the length of the longest opening name in the dataset, the "Nimzowitsch Defense: Scandinavian Variation |  Bogoljubov Variation |  Heinola-Deppe Gambit"
+  opening_ply INT  
+);
+#then put some data into the original dataset
+insert into portfolio_db.OpeningsTOOLBOX (id, increment_code, black_rating, white_rating, winner, turns, victory_status, opening_name, opening_ply)
+select id, increment_code, black_rating, white_rating, winner, turns, victory_status, opening_name, opening_ply 
+from partier;
+
+
+
+###English: Here I am going to calculate all the interaction variables needed
+###Svenska: Här räknar jag ut alla interactionsvaribler som behövs
+##################RATING BASED INTERACTION VARIABLES###################
+#########total rating#################################
+UPDATE portfolio_db.OpeningsTOOLBOX
+set total_rating = (white_rating+black_rating);
+#####################victory delta creation#####################
+UPDATE portfolio_db.OpeningsTOOLBOX
+set victory_delta = (white_rating-black_rating)
+where winner = "white" ;
+UPDATE portfolio_db.OpeningsTOOLBOX
+set victory_delta = (black_rating-white_rating)
+where winner = "black" ;
+#######################winner ratings##############################
+UPDATE portfolio_db.OpeningsTOOLBOX
+set winner_rating = white_rating
+where winner = "white" ;
+UPDATE portfolio_db.OpeningsTOOLBOX
+set winner_rating = black_rating
+where winner = "black" ;
+############# loser rating
+UPDATE portfolio_db.OpeningsTOOLBOX
+set loser_rating = black_rating
+where winner = "white" ;
+UPDATE portfolio_db.OpeningsTOOLBOX
+set loser_rating = white_rating
+where winner = "black" ;
+##################RATING BASED INTERACTION VARIABLES###################
+select id, total_rating, winner_rating, loser_rating, victory_delta, opening_name from OpeningsTOOLBOX;
+
+
+###English: With my "toolbox" ready and fixed I'm ready to head to my "workbench" 
+
+###Svenska: Med min "verktygslåda" ordnad så är jag redo att gå till min "snickarbod"
+
+
+####################WORK TABLE###################################
+
+###English: I am goina to create a table of just the different openings, and some detailed derived metrics about each one
+
+###Svenska: jag kommer här skapa en tabell om bara de olika öppningarna, med några uträknade mått om varje
+create table OpeningsWORKBENCH ( 
+opening_name VARCHAR(91) primary key,
+average_total_rating INT,
+average_winner_rating INT,
+average_loser_rating INT,
+average_victory_delta INT,
+sample_size INT #the amount of times this increment code appears in TOOL dataset, to check for sample size bias.
+);
+######################INSERT INTO SOLUTION ##################################
+insert IGNORE INTO OpeningsWORKBENCH (opening_name, average_total_rating, average_winner_rating, average_loser_rating, average_victory_delta,sample_size)
+select opening_name,avg(total_rating),avg(winner_rating),avg(loser_rating),avg(victory_delta),COUNT(opening_name) 
+FROM OpeningsTOOLBOX
+group by opening_name
+; 
+## Den funkar :)#################################################################
+#lets first look at this table before I talk about it. / Låt oss först titta på denna tabell innan jag pratar om den.
+
+select * from openingsWORKBENCH;
+
+###English: With that beautiful insert into function run I now have a table that lists all openings and their metrics. 
+#to answer David's question I'm going to be interested in the "average_victory_delta" (AVD) variable. It's calculated as (winner_rating-loser_rating=AVD). 
+#But as the average for every game where a particular opening was used. 
+#The lower this value goes the better it has benefited the lower rating player.
+
+###Svenska: Med den vackra INSERT into functionen körd så har jag nu en tabell som listar alla öppningar och deras associerade mått.
+#För att svare på Davids fråga så kommer jag titta på variabeln "average victory delta" (AVD). Den är uträknad som (Vinnarens rating - förlorarens rating=AVD).
+#Fast ljusterat efter medelvärdet i matcher där en viss sorts öppning har använts. 
+#Ju lägre detta värde är dessto bättre har denna öppning gynnat spelaren med lägre rating. 
+
+
+####################ANSWERING THE QUESTION ##################
+###English: This coming code will answer the question, but to avoid sample size bias I'm also adding the condition that the opening has to have been used it atleast 10 games.
+
+###Svenska: Denna kommande kod kommer svara på frågan, men för att undvika sample size bias så lägger jag också till kravet att öppningen måste ha använts i minst 10 matcher.
+
+
+
+select opening_name, average_victory_delta,sample_size 
+from openingsWORKBENCH
+where average_victory_delta = ( 
+select MIN(average_victory_delta) 
+from openingsWORKBENCH 
+where sample_size > 10) 
+and  sample_size > 10;
+
+###English: And there we have it, if you're ever in a chess game against a player with a higher rating, the "King's Indian Defense: Four Pawns Attack" is your best hope. 
+
+###Svenska: Och där har vi det, ifall du någonsin finner dig själv i en schack match mot en spelare med högre rating så är ditt bästa hopp "King's Indian Defense: Four Pawns Attack".
+
+####English: THIS SCRIPT IS PART OF THE ANALYTICS PORTFOLIO OF LUDVIG GEIJER MICHAELI
+##CONTACT:Ludvig.gm@gmail.com / (swedish number) 0739078516
+
+
+#####Svenska: DETTA SKRIPT ÄR EN DEL AV LUDVIG GEIJER MICHAELIS ANALYTIKERPORTFÖLJ
+##KONTAKT: Ludvig.gm@gmail.com / 0739078516
